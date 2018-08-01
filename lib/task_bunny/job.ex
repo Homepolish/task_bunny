@@ -184,6 +184,7 @@ defmodule TaskBunny.Job do
   - delay: Set time in milliseconds to schedule the job enqueue time.
   - host: RabbitMQ host. By default it is automatically selected from configuration.
   - queue: RabbitMQ queue. By default it is automatically selected from configuration.
+  - id: Set a job ID to enable unique identification of jobs, e.g. as an idempotency key.
 
   """
   @spec enqueue(atom, any, keyword) :: :ok | {:error, any}
@@ -201,7 +202,7 @@ defmodule TaskBunny.Job do
     queue_data = Config.queue_for_job(job) || []
 
     host = options[:host] || queue_data[:host] || :default
-    {:ok, message} = Message.encode(job, payload)
+    {:ok, message} = Message.encode(job, payload, options)
 
     case options[:queue] || queue_data[:name] do
       nil -> raise QueueNotFoundError, job: job

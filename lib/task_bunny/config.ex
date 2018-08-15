@@ -3,8 +3,62 @@ defmodule TaskBunny.Config do
   Handles TaskBunny configuration.
   """
   alias TaskBunny.ConfigError
+  alias TaskBunny.DefaultJobRunner
 
   @default_concurrency 2
+
+  @doc """
+  Returns true if auto start is enabled.
+  """
+  @spec auto_start? :: boolean
+  def auto_start? do
+    case Application.fetch_env(:task_bunny, :disable_auto_start) do
+      {:ok, true} -> false
+      _ -> true
+    end
+  end
+
+  @doc """
+  Returns connect options for the host.
+  """
+  @spec connect_options(host :: atom) :: list | String.t()
+  def connect_options(host) do
+    hosts_config()[host][:connect_options] ||
+      raise ConfigError, message: "Can not find host '#{host}' in config"
+  end
+
+  @doc """
+  Disable auto start manually.
+  """
+  @spec disable_auto_start :: :ok
+  def disable_auto_start do
+    :ok = Application.put_env(:task_bunny, :disable_auto_start, true)
+  end
+
+  @doc """
+  Returns true if worker is disabled.
+  """
+  @spec disable_worker? :: boolean
+  def disable_worker? do
+    case Application.fetch_env(:task_bunny, :disable_worker) do
+      {:ok, true} -> true
+      _ -> disable_worker_on_env?()
+    end
+  end
+
+  @doc """
+  Returns the list of failure backends.
+
+  It returns `TaskBunny.FailureBackend.Logger` by default.
+  """
+  @spec failure_backend :: [atom]
+  def failure_backend do
+    case Application.fetch_env(:task_bunny, :failure_backend) do
+      {:ok, list} when is_list(list) -> list
+      {:ok, atom} when is_atom(atom) -> [atom]
+      _ -> [TaskBunny.FailureBackend.Logger]
+    end
+  end
 
   @doc """
   Returns list of hosts.
@@ -29,13 +83,13 @@ defmodule TaskBunny.Config do
     hosts_config()[host]
   end
 
-  @doc """
-  Returns connect options for the host.
-  """
-  @spec connect_options(host :: atom) :: list | String.t()
-  def connect_options(host) do
-    hosts_config()[host][:connect_options] ||
-      raise ConfigError, message: "Can not find host '#{host}' in config"
+  @spec job_runner() :: atom
+  def job_runner() do
+    case Application.fetch_env(:task_bunny, :job_runner) do
+      {:ok, module} when is_binary(module) -> String.to_existing_atom(module)
+      {:ok, module} when is_atom(module) -> module
+      _ -> DefaultJobRunner
+    end
   end
 
   @doc """
@@ -52,18 +106,12 @@ defmodule TaskBunny.Config do
     |> Enum.flat_map(fn queue_list -> queue_list end)
   end
 
-  # Get queue config and returns list of queues with namespace
-  defp parse_queue_config(queue_config) do
-    namespace = queue_config[:namespace] || ""
-
-    queue_config[:queues]
-    |> Enum.map(fn queue ->
-      unless queue[:name] do
-        raise ConfigError, message: "name is missing in queue definition. #{inspect(queue)}"
-      end
-
-      Keyword.merge(queue, name: namespace <> queue[:name])
-    end)
+  @doc """
+  Returns a queue for the given job.
+  """
+  @spec queue_for_job(atom) :: keyword | nil
+  def queue_for_job(job) do
+    Enum.find(queues(), fn queue -> match_job?(job, queue[:jobs]) end) || default_queue()
   end
 
   @doc """
@@ -89,35 +137,22 @@ defmodule TaskBunny.Config do
     end)
   end
 
-  # Checks worker configuration sanity.
-  @spec worker_enabled?(keyword) :: boolean
-  defp worker_enabled?(queue) do
-    case Keyword.get(queue, :worker, []) do
-      false ->
-        false
+  ## PRIVATE FUNCTIONS
 
-      worker ->
-        concurrency = Keyword.get(worker, :concurrency, @default_concurrency)
+  defp disable_worker_on_env? do
+    env =
+      (System.get_env("TASK_BUNNY_DISABLE_WORKER") || "false")
+      |> String.downcase()
 
-        concurrency > 0
+    ["1", "true", "yes"] |> Enum.member?(env)
+  end
+
+  @spec hosts_config() :: list
+  defp hosts_config do
+    case Application.fetch_env(:task_bunny, :hosts) do
+      {:ok, host_list} -> host_list
+      _ -> []
     end
-  end
-
-  @doc """
-  Returns a queue for the given job.
-  """
-  @spec queue_for_job(atom) :: keyword | nil
-  def queue_for_job(job) do
-    Enum.find(queues(), fn queue ->
-      match_job?(job, queue[:jobs])
-    end) || default_queue()
-  end
-
-  @spec default_queue :: keyword | nil
-  defp default_queue do
-    Enum.find(queues(), fn queue ->
-      queue[:jobs] == :default
-    end)
   end
 
   @spec match_job?(atom, atom | String.t() | list) :: boolean
@@ -156,63 +191,36 @@ defmodule TaskBunny.Config do
     Enum.any?(jobs, fn pattern -> match_job?(job, pattern) end)
   end
 
-  @doc """
-  Returns true if auto start is enabled.
-  """
-  @spec auto_start? :: boolean
-  def auto_start? do
-    case Application.fetch_env(:task_bunny, :disable_auto_start) do
-      {:ok, true} -> false
-      _ -> true
-    end
+  # Get queue config and returns list of queues with namespace
+  defp parse_queue_config(queue_config) do
+    namespace = queue_config[:namespace] || ""
+
+    queue_config[:queues]
+    |> Enum.map(fn queue ->
+      unless queue[:name] do
+        raise ConfigError, message: "name is missing in queue definition. #{inspect(queue)}"
+      end
+
+      Keyword.merge(queue, name: namespace <> queue[:name])
+    end)
   end
 
-  @doc """
-  Returns true if worker is disabled.
-  """
-  @spec disable_worker? :: boolean
-  def disable_worker? do
-    case Application.fetch_env(:task_bunny, :disable_worker) do
-      {:ok, true} -> true
-      _ -> disable_worker_on_env?()
-    end
+  @spec default_queue :: keyword | nil
+  defp default_queue do
+    Enum.find(queues(), fn queue -> queue[:jobs] == :default end)
   end
 
-  defp disable_worker_on_env? do
-    env =
-      (System.get_env("TASK_BUNNY_DISABLE_WORKER") || "false")
-      |> String.downcase()
+  # Checks worker configuration sanity.
+  @spec worker_enabled?(keyword) :: boolean
+  defp worker_enabled?(queue) do
+    case Keyword.get(queue, :worker, []) do
+      false ->
+        false
 
-    ["1", "true", "yes"] |> Enum.member?(env)
-  end
+      worker ->
+        concurrency = Keyword.get(worker, :concurrency, @default_concurrency)
 
-  @doc """
-  Disable auto start manually.
-  """
-  @spec disable_auto_start :: :ok
-  def disable_auto_start do
-    :ok = Application.put_env(:task_bunny, :disable_auto_start, true)
-  end
-
-  @spec hosts_config() :: list
-  defp hosts_config do
-    case Application.fetch_env(:task_bunny, :hosts) do
-      {:ok, host_list} -> host_list
-      _ -> []
-    end
-  end
-
-  @doc """
-  Returns the list of failure backends.
-
-  It returns `TaskBunny.FailureBackend.Logger` by default.
-  """
-  @spec failure_backend :: [atom]
-  def failure_backend do
-    case Application.fetch_env(:task_bunny, :failure_backend) do
-      {:ok, list} when is_list(list) -> list
-      {:ok, atom} when is_atom(atom) -> [atom]
-      _ -> [TaskBunny.FailureBackend.Logger]
+        concurrency > 0
     end
   end
 end

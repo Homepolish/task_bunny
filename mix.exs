@@ -79,7 +79,7 @@ defmodule TaskBunny.Mixfile do
 
       # dev/test
       {:credo, "~> 0.6", only: [:dev]},
-      {:dialyxir, "~> 0.4", only: [:dev], runtime: false},
+      {:dialyxir, "~> 1.0.0-pre", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.14", only: :dev},
       {:excoveralls, "~> 0.5", only: :test},
       {:inch_ex, "~> 0.5", only: [:dev, :test]},

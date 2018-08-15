@@ -1,6 +1,6 @@
-defmodule TaskBunny.JobRunnerTest do
+defmodule TaskBunny.DefaultJobRunnerTest do
   use ExUnit.Case
-  alias TaskBunny.JobRunner
+  alias TaskBunny.DefaultJobRunner
 
   defmodule SampleJobs do
     defmodule CrashJob do
@@ -56,32 +56,32 @@ defmodule TaskBunny.JobRunnerTest do
     test "runs the job and notifies when it has finished" do
       payload = %{hello: "world"}
       message = message(SampleJobs.NormalJob, payload, %{a: "b"})
-      JobRunner.invoke(SampleJobs.NormalJob, payload, message)
+      DefaultJobRunner.invoke(SampleJobs.NormalJob, payload, message)
 
       assert_receive {:job_finished, :ok, ^message}
     end
 
     test "invokes perform method with the given payload" do
       payload = %{hello: "world"}
-      JobRunner.invoke(SampleJobs.PayloadJob, payload, nil)
+      DefaultJobRunner.invoke(SampleJobs.PayloadJob, payload, nil)
 
       assert_receive {:job_finished, {:ok, ^payload}, nil}
     end
 
     test "handles job error" do
-      JobRunner.invoke(SampleJobs.ErrorJob, nil, nil)
+      DefaultJobRunner.invoke(SampleJobs.ErrorJob, nil, nil)
 
       assert_receive {:job_finished, {:error, %{return_value: {:error, "failed!"}}}, nil}
     end
 
     test "handles job crashing" do
-      JobRunner.invoke(SampleJobs.CrashJob, nil, nil)
+      DefaultJobRunner.invoke(SampleJobs.CrashJob, nil, nil)
 
       assert_receive {:job_finished, {:error, _}, nil}
     end
 
     test "handles timed-out job" do
-      JobRunner.invoke(SampleJobs.TimeoutJob, nil, nil)
+      DefaultJobRunner.invoke(SampleJobs.TimeoutJob, nil, nil)
 
       assert_receive {:job_finished, {:error, _}, nil}, 1000
     end

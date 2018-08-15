@@ -10,16 +10,14 @@ defmodule TaskBunny.Worker do
   use GenServer
   require Logger
 
-  alias TaskBunny.{
-    Connection,
-    Consumer,
-    JobRunner,
-    Queue,
-    Publisher,
-    Worker,
-    Message,
-    FailureBackend
-  }
+  alias TaskBunny.Config
+  alias TaskBunny.Connection
+  alias TaskBunny.Consumer
+  alias TaskBunny.FailureBackend
+  alias TaskBunny.Message
+  alias TaskBunny.Publisher
+  alias TaskBunny.Queue
+  alias TaskBunny.Worker
 
   @typedoc """
   Struct that represents a state of the worker GenServer.
@@ -152,8 +150,7 @@ defmodule TaskBunny.Worker do
         job = decoded["job"]
 
         start_callback(job, body)
-
-        JobRunner.invoke(job, decoded["payload"], {body, meta})
+        Config.job_runner().invoke(job, decoded["payload"], {body, meta})
 
         {:noreply, %{state | runners: state.runners + 1}}
 

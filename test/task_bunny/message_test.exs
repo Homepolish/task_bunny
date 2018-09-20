@@ -10,8 +10,13 @@ defmodule TaskBunny.MessageTest do
 
   describe "encode/decode message body(payload)" do
     test "encode and decode payload" do
-      {:ok, encoded} = Message.encode(NameJob, %{"name" => "Joe"}, id: "some-id")
-      {:ok, %{"job" => job, "payload" => payload, "id" => "some-id"}} = Message.decode(encoded)
+      {:ok, encoded} =
+        Message.encode(NameJob, %{"name" => "Joe"}, id: "some-id", extra: %{foo: "bar"})
+
+      {:ok,
+       %{"job" => job, "payload" => payload, "id" => "some-id", "extra" => %{"foo" => "bar"}}} =
+        Message.decode(encoded)
+
       assert job.perform(payload) == {:ok, "Joe"}
     end
 

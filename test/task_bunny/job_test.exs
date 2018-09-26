@@ -37,6 +37,22 @@ defmodule TaskBunny.JobTest do
                  host: :invalid_host
                )
     end
+
+    test "enqueues optional data" do
+      payload = %{"foo" => "bar"}
+      job_id = "foo"
+      extra = %{"foo" => "bar"}
+      :ok = TestJob.enqueue(payload, queue: @queue, id: job_id, extra: extra)
+
+      {received, _} = QueueTestHelper.pop(@queue)
+
+      {:ok, %{"payload" => rec_payload, "extra" => rec_extra, "id" => rec_job_id}} =
+        Message.decode(received)
+
+      assert rec_payload == payload
+      assert rec_extra == extra
+      assert rec_job_id == job_id
+    end
   end
 
   describe "enqueue!" do

@@ -241,7 +241,7 @@ defmodule TaskBunny.Job do
     queue_data = Config.queue_for_job(job) || []
 
     host = options[:host] || queue_data[:host] || :default
-    message_options = Keyword.take(options, [:id])
+    message_options = Keyword.take(options, [:id, :extra])
     {:ok, message} = Message.encode(job, payload, message_options)
 
     case options[:queue] || queue_data[:name] do

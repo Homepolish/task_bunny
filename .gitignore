@@ -21,3 +21,5 @@ erl_crash.dump
 
 # asdf version file
 .tool-versions
+
+/.elixir_ls

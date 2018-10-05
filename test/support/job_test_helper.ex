@@ -30,19 +30,19 @@ defmodule TaskBunny.JobTestHelper do
       :ok
     end
 
-    def on_success(body) do
+    def on_success(body, _result) do
       pid = enqueuer_pid(body)
       pid && send(pid, :on_success_callback_called)
       :ok
     end
 
-    def on_retry(body) do
+    def on_retry(body, _result) do
       pid = enqueuer_pid(body)
       pid && send(pid, :on_retry_callback_called)
       :ok
     end
 
-    def on_reject(body) do
+    def on_reject(body, _result) do
       pid = enqueuer_pid(body)
       pid && send(pid, :on_reject_callback_called)
       :ok
@@ -51,7 +51,6 @@ defmodule TaskBunny.JobTestHelper do
     defp enqueuer_pid(body) do
       ppid =
         body
-        |> Jason.decode!()
         |> get_in(["payload", "ppid"])
 
       ppid && ppid |> Base.decode64!() |> :erlang.binary_to_term()

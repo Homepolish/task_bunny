@@ -29,21 +29,15 @@ defmodule TaskBunny.DefaultJobRunner do
   The job is run in a separate process, which is killed after the job.timeout if the job has not finished yet.
   A :error message is send to the :job_finished of the caller if the job times out.
   """
-  def invoke(job, payload, message) do
+  @impl TaskBunny.JobRunner
+  def invoke(%{"job" => job, "payload" => payload} = decoded, meta) do
     caller = self()
-
     timeout_error = {:error, JobError.handle_timeout(job, payload)}
-
-    timer =
-      Process.send_after(
-        caller,
-        {:job_finished, timeout_error, message},
-        job.timeout
-      )
+    timer = Process.send_after(caller, {:job_finished, timeout_error, decoded, meta}, job.timeout)
 
     pid =
       spawn(fn ->
-        send(caller, {:job_finished, run_job(job, payload), message})
+        send(caller, {:job_finished, run_job(job, payload), decoded, meta})
         Process.cancel_timer(timer)
       end)
 

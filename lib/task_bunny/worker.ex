@@ -2,7 +2,7 @@ defmodule TaskBunny.Worker do
   @moduledoc """
   A GenServer that listens a queue and consumes messages.
 
-  You don't have to call or start worker explicity.
+  You don't have to call or start worker explicitly.
   TaskBunny loads config and starts workers automatically for you.
 
   """
@@ -67,7 +67,7 @@ defmodule TaskBunny.Worker do
     GenServer.start_link(__MODULE__, state, name: pname(state.queue))
   end
 
-  # Initialises GenServer. Send a request for RabbitMQ connection
+  # Initializes GenServer. Send a request for RabbitMQ connection
   @doc false
   @spec init(t) :: {:ok, t} | {:stop, :connection_not_ready}
   def init(state = %Worker{}) do
@@ -76,7 +76,6 @@ defmodule TaskBunny.Worker do
     case Connection.subscribe_connection(state.host, self()) do
       :ok ->
         Process.flag(:trap_exit, true)
-
         {:ok, state}
 
       _ ->
@@ -89,11 +88,7 @@ defmodule TaskBunny.Worker do
   @spec terminate(any, TaskBunny.Worker.t()) :: :normal
   def terminate(_reason, state) do
     Logger.info(log_msg("terminating", state))
-
-    if state.channel do
-      AMQP.Channel.close(state.channel)
-    end
-
+    if state.channel, do: AMQP.Channel.close(state.channel)
     :normal
   end
 
@@ -104,7 +99,6 @@ defmodule TaskBunny.Worker do
   @spec stop_consumer(pid) :: :ok
   def stop_consumer(pid) do
     if Process.alive?(pid), do: send(pid, {:stop_consumer})
-
     :ok
   end
 
@@ -144,13 +138,11 @@ defmodule TaskBunny.Worker do
   # Invokes a job here.
   def handle_info({:basic_deliver, body, meta}, state) do
     case Message.decode(body) do
-      {:ok, decoded} ->
-        Logger.debug(log_msg("basic_deliver", state, body: body))
+      {:ok, %{"job" => job} = decoded} ->
+        Logger.debug(log_msg("basic_deliver", state, body: decoded))
 
-        job = decoded["job"]
-
-        start_callback(job, body)
-        Config.job_runner().invoke(job, decoded["payload"], {body, meta})
+        start_callback(job, decoded)
+        Config.job_runner().invoke(decoded, meta)
 
         {:noreply, %{state | runners: state.runners + 1}}
 
@@ -167,21 +159,19 @@ defmodule TaskBunny.Worker do
 
   # Called when job was done.
   # Acknowledge to RabbitMQ.
-  def handle_info({:job_finished, result, {body, meta}}, state) do
-    Logger.debug(log_msg("job_finished", state, body: body, meta: meta))
+  def handle_info({:job_finished, result, decoded, meta}, state) do
+    Logger.debug(log_msg("job_finished", state, body: decoded, meta: meta))
 
-    case succeeded?(result) do
-      true ->
-        handle_successful_job(state, body, meta)
-
-      false ->
-        handle_failed_job(state, body, meta, result)
+    if succeeded?(result) do
+      on_successful_job(state, decoded, meta, result)
+    else
+      on_failed_job(state, decoded, meta, result)
     end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  # Retreive worker status
+  # Retrieve worker status
   @spec handle_call(atom, {pid, any}, any) :: {:reply, map, t}
   def handle_call(:status, _from, state) do
     channel =
@@ -222,25 +212,18 @@ defmodule TaskBunny.Worker do
   defp succeeded?({:ok, _}), do: true
   defp succeeded?(_), do: false
 
-  defp handle_successful_job(state, body, meta) do
-    {:ok, decoded} = Message.decode(body)
-    job = decoded["job"]
-
-    success_callback(job, body)
-
+  defp on_successful_job(state, %{"job" => job} = decoded, meta, result) do
+    success_callback(job, decoded, result)
     Consumer.ack(state.channel, meta, true)
-
     {:noreply, update_job_stats(state, :succeeded)}
   end
 
-  defp handle_failed_job(state, body, meta, {:error, job_error}) do
-    {:ok, decoded} = Message.decode(body)
+  defp on_failed_job(state, %{"job" => job} = decoded, meta, {:error, job_error}) do
     failed_count = Message.failed_count(decoded) + 1
-    job = decoded["job"]
 
     job_error =
       Map.merge(job_error, %{
-        raw_body: body,
+        raw_body: Jason.encode!(decoded),
         meta: meta,
         failed_count: failed_count,
         queue: state.queue,
@@ -249,17 +232,19 @@ defmodule TaskBunny.Worker do
         reject: failed_count > job.max_retry()
       })
 
-    new_body = Message.add_error_log(body, job_error)
+    new_message = Message.add_error_log(decoded, job_error)
 
     FailureBackend.report_job_error(job_error)
 
     if reject?(job, failed_count, job_error) do
-      reject_message(state, new_body, meta)
-      reject_callback(job, new_body)
+      reject_message(state, new_message, meta)
+      reject_callback(job, new_message, Map.get(job_error, :return_value))
+
       {:noreply, update_job_stats(state, :rejected)}
     else
-      retry_message(job, state, new_body, meta, failed_count)
-      retry_callback(job, new_body)
+      retry_message(job, state, new_message, meta, failed_count)
+      retry_callback(job, new_message, Map.get(job_error, :return_value))
+
       {:noreply, update_job_stats(state, :failed)}
     end
   end
@@ -268,37 +253,46 @@ defmodule TaskBunny.Worker do
   defp reject?(_, _, %{return_value: {:reject, _}}), do: true
   defp reject?(job, failed_count, _), do: failed_count > job.max_retry()
 
-  @spec retry_message(atom, Worker.t(), any, any, integer) :: :ok
-  defp retry_message(job, state, body, meta, failed_count) do
+  @spec retry_message(atom, Worker.t(), map, any, integer) :: :ok
+  defp retry_message(job, state, decoded, meta, failed_count) do
     retry_queue = Queue.retry_queue(state.queue)
-
-    options = [
-      expiration: "#{job.retry_interval(failed_count)}"
-    ]
+    options = [expiration: "#{job.retry_interval(failed_count)}"]
+    body = Jason.encode!(decoded)
 
     Publisher.publish(state.host, retry_queue, body, options)
-
     Consumer.ack(state.channel, meta, true)
-    :ok
   end
 
-  @spec reject_message(Worker.t(), any, any) :: :ok
-  defp reject_message(state, body, meta) do
+  @spec reject_message(Worker.t(), map | String.t(), any) :: :ok
+  defp reject_message(state, maybe_decoded, meta) do
     rejected_queue = Queue.rejected_queue(state.queue)
-    Publisher.publish(state.host, rejected_queue, body)
+    body = if is_map(maybe_decoded), do: Jason.encode!(maybe_decoded), else: maybe_decoded
 
+    Publisher.publish(state.host, rejected_queue, body)
     Consumer.ack(state.channel, meta, true)
-    :ok
   end
 
-  defp start_callback(job, body), do: job.on_start(body)
+  @spec start_callback(atom, map) :: :ok
+  defp start_callback(job, decoded) do
+    if :erlang.function_exported(job, :on_start, 1), do: job.on_start(decoded)
+  end
 
-  defp success_callback(job, body), do: job.on_success(body)
+  @spec success_callback(atom, map, term) :: :ok
+  defp success_callback(job, decoded, result) do
+    if :erlang.function_exported(job, :on_success, 2), do: job.on_success(decoded, result)
+  end
 
-  defp retry_callback(job, body), do: job.on_retry(body)
+  @spec retry_callback(atom, map, term) :: :ok
+  defp retry_callback(job, decoded, result) do
+    if :erlang.function_exported(job, :on_retry, 2), do: job.on_retry(decoded, result)
+  end
 
-  defp reject_callback(job, body), do: job.on_reject(body)
+  @spec reject_callback(atom, map, term) :: :ok
+  defp reject_callback(job, decoded, result) do
+    if :erlang.function_exported(job, :on_reject, 2), do: job.on_reject(decoded, result)
+  end
 
+  @spec log_msg(String.t(), atom | map, any) :: String.t()
   defp log_msg(message, state, additional \\ nil) do
     message =
       "TaskBunny.Worker: #{message}. Queue: #{state.queue}. Concurrency: #{state.concurrency}. PID: #{

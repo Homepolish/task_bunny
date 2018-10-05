@@ -70,6 +70,11 @@ defmodule TaskBunny.Job do
 
   """
 
+  @typedoc """
+  The response type for a given `perform` action.
+  """
+  @type result :: :ok | :reject | {:ok | :reject | :error, term}
+
   @doc """
   Callback to process a job.
 
@@ -89,31 +94,23 @@ defmodule TaskBunny.Job do
 
   @doc """
   Callback executed when a job starts.
-
-  It receives the raw message structure including payload.
   """
-  @callback on_start(any) :: :ok
+  @callback on_start(map) :: :ok
 
   @doc """
   Callback executed when a job succeeds.
-
-  It receives the raw message structure including original payload.
   """
-  @callback on_success(any) :: :ok
+  @callback on_success(map, result) :: :ok
 
   @doc """
   Callback executed when a job gets requeued for retry.
-
-  It receives the raw message structure including original payload.
   """
-  @callback on_retry(any) :: :ok
+  @callback on_retry(map, result) :: :ok
 
   @doc """
   Callback executed when a job gets rejected.
-
-  It receives in input the whole error trace structure plus the orginal payload for inspection and recovery actions.
   """
-  @callback on_reject(any) :: :ok
+  @callback on_reject(map, result) :: :ok
 
   @doc """
   Callback for the timeout in milliseconds for a job execution.
@@ -141,6 +138,8 @@ defmodule TaskBunny.Job do
   The value will be more than or equal to 1 and less than or equal to max_retry.
   """
   @callback retry_interval(integer) :: integer
+
+  @optional_callbacks [on_start: 1, on_success: 2, on_retry: 2, on_reject: 2]
 
   require Logger
   alias TaskBunny.{Config, Queue, Job, Message, Publisher}
@@ -183,34 +182,14 @@ defmodule TaskBunny.Job do
       @spec retry_interval(integer) :: integer
       def retry_interval(_failed_count), do: 300_000
 
-      @doc false
-      @spec on_start(any) :: :ok
-      def on_start(_body), do: :ok
-
-      @doc false
-      @spec on_success(any) :: :ok
-      def on_success(_body), do: :ok
-
-      @doc false
-      @spec on_retry(any) :: :ok
-      def on_retry(_body), do: :ok
-
-      @doc false
-      @spec on_reject(any) :: :ok
-      def on_reject(_body), do: :ok
-
       defoverridable timeout: 0,
                      max_retry: 0,
-                     retry_interval: 1,
-                     on_start: 1,
-                     on_success: 1,
-                     on_retry: 1,
-                     on_reject: 1
+                     retry_interval: 1
     end
   end
 
   @doc """
-  Enqueues a job with payload.
+  Enqueue a job with payload.
 
   You might want to use the shorter version if you can access to the job.
 

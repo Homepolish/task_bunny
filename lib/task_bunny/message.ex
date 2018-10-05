@@ -17,7 +17,7 @@ defmodule TaskBunny.Message do
   @spec encode(atom, any, keyword | nil) :: {:ok, String.t()}
   def encode(job, payload, options \\ []) do
     data = message_data(job, payload, options)
-    Jason.encode(data, pretty: true)
+    Jason.encode(data)
   end
 
   @doc """
@@ -26,11 +26,11 @@ defmodule TaskBunny.Message do
   @spec encode!(atom, any, keyword | nil) :: String.t()
   def encode!(job, payload, options \\ []) do
     data = message_data(job, payload, options)
-    Jason.encode!(data, pretty: true)
+    Jason.encode!(data)
   end
 
   @spec message_data(atom, any, keyword) :: map
-  defp message_data(job, payload, options) do
+  def message_data(job, payload, options) do
     %{
       "job" => encode_job(job),
       "payload" => payload,
@@ -105,8 +105,8 @@ defmodule TaskBunny.Message do
   @doc """
   Add an error log to message body.
   """
-  @spec add_error_log(String.t() | map, JobError.t()) :: String.t() | map
-  def add_error_log(message, error) when is_map(message) do
+  @spec add_error_log(map, JobError.t()) :: map
+  def add_error_log(message, error) do
     error = %{
       "result" => JobError.get_result_info(error),
       "failed_at" => DateTime.utc_now(),
@@ -118,13 +118,6 @@ defmodule TaskBunny.Message do
     Map.merge(message, %{"errors" => errors})
   end
 
-  def add_error_log(raw_message, error) do
-    raw_message
-    |> Jason.decode!()
-    |> add_error_log(error)
-    |> Jason.encode!(pretty: true)
-  end
-
   defp host do
     {:ok, hostname} = :inet.gethostname()
     List.to_string(hostname)
@@ -133,17 +126,11 @@ defmodule TaskBunny.Message do
   @doc """
   Returns a number of errors occurred for the message.
   """
-  @spec failed_count(String.t() | map) :: integer
-  def failed_count(message) when is_map(message) do
+  @spec failed_count(map) :: integer
+  def failed_count(message) do
     case message["errors"] do
       nil -> 0
       errors -> length(errors)
     end
-  end
-
-  def failed_count(raw_message) do
-    raw_message
-    |> Jason.decode!()
-    |> failed_count()
   end
 end

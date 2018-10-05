@@ -1,6 +1,6 @@
 defmodule TaskBunny.JobError do
   @moduledoc """
-  A struct that holds an error information occured during the job processing.
+  A struct that holds an error information occurred during the job processing.
 
   ## Attributes
 

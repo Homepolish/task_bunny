@@ -9,7 +9,7 @@ defmodule TaskBunny.Status.WorkerTest do
   @host :worker_test
   @supervisor :worker_test_supervisor
   @worker_supervisor :worker_test_worker_supervisor
-  @publisher :workert_test_publisher
+  @publisher :worker_test_publisher
   @queue1 "task_bunny.status.worker_test1"
   @queue2 "task_bunny.status.worker_test2"
 
@@ -118,7 +118,10 @@ defmodule TaskBunny.Status.WorkerTest do
       payload = %{"fail" => "fail"}
 
       RejectJob.enqueue(payload, host: @host, queue: @queue2)
-      capture_log(fn -> JobTestHelper.wait_for_perform() end)
+
+      capture_log(fn ->
+        JobTestHelper.wait_for_perform()
+      end)
 
       %{workers: workers} = TaskBunny.Status.overview(@supervisor)
       %{stats: stats} = find_worker(workers, @queue2)

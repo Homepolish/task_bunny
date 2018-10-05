@@ -48,42 +48,53 @@ defmodule TaskBunny.DefaultJobRunnerTest do
   end
 
   describe "invoke" do
-    defp message(job, payload, meta) do
-      body = TaskBunny.Message.encode!(job, payload)
-      {body, meta}
+    defp message(job, payload) do
+      job
+      |> TaskBunny.Message.encode!(payload)
+      |> TaskBunny.Message.decode!()
     end
 
     test "runs the job and notifies when it has finished" do
       payload = %{hello: "world"}
-      message = message(SampleJobs.NormalJob, payload, %{a: "b"})
-      DefaultJobRunner.invoke(SampleJobs.NormalJob, payload, message)
+      meta = %{a: "b"}
+      decoded = message(SampleJobs.NormalJob, payload)
+      DefaultJobRunner.invoke(decoded, meta)
 
-      assert_receive {:job_finished, :ok, ^message}
+      assert_receive {:job_finished, :ok, ^decoded, ^meta}
     end
 
     test "invokes perform method with the given payload" do
       payload = %{hello: "world"}
-      DefaultJobRunner.invoke(SampleJobs.PayloadJob, payload, nil)
+      decoded = message(SampleJobs.PayloadJob, payload)
+      DefaultJobRunner.invoke(decoded, nil)
 
-      assert_receive {:job_finished, {:ok, ^payload}, nil}
+      assert_receive {:job_finished, {:ok, %{"hello" => "world"}}, ^decoded, nil}
     end
 
     test "handles job error" do
-      DefaultJobRunner.invoke(SampleJobs.ErrorJob, nil, nil)
+      decoded = message(SampleJobs.ErrorJob, nil)
+      DefaultJobRunner.invoke(decoded, nil)
 
-      assert_receive {:job_finished, {:error, %{return_value: {:error, "failed!"}}}, nil}
+      assert_receive {
+        :job_finished,
+        {:error, %{return_value: {:error, "failed!"}}},
+        ^decoded,
+        nil
+      }
     end
 
     test "handles job crashing" do
-      DefaultJobRunner.invoke(SampleJobs.CrashJob, nil, nil)
+      decoded = message(SampleJobs.CrashJob, nil)
+      DefaultJobRunner.invoke(decoded, nil)
 
-      assert_receive {:job_finished, {:error, _}, nil}
+      assert_receive {:job_finished, {:error, _}, ^decoded, nil}
     end
 
     test "handles timed-out job" do
-      DefaultJobRunner.invoke(SampleJobs.TimeoutJob, nil, nil)
+      decoded = message(SampleJobs.TimeoutJob, nil)
+      DefaultJobRunner.invoke(decoded, nil)
 
-      assert_receive {:job_finished, {:error, _}, nil}, 1000
+      assert_receive {:job_finished, {:error, _}, ^decoded, nil}, 1000
     end
   end
 end

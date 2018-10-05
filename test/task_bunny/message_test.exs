@@ -46,7 +46,10 @@ defmodule TaskBunny.MessageTest do
   describe "add_error_log" do
     @tag timeout: 1000
     test "adds error information to the message" do
-      message = Message.encode!(NameJob, %{"name" => "Joe"})
+      message =
+        NameJob
+        |> Message.encode!(%{"name" => "Joe"})
+        |> Message.decode!()
 
       error = %JobError{
         error_type: :return_value,
@@ -56,12 +59,10 @@ defmodule TaskBunny.MessageTest do
         raw_body: "abcdefg"
       }
 
-      new_message = Message.add_error_log(message, error)
-      {:ok, %{"errors" => [added | _]}} = Message.decode(new_message)
-
-      assert added["result"]["error_type"] == ":return_value"
-      assert added["result"]["return_value"] == "{:error, :test_error}"
-      refute added["result"]["raw_body"]
+      assert %{"errors" => [added | _]} = Message.add_error_log(message, error)
+      assert added["result"][:error_type] == ":return_value"
+      assert added["result"][:return_value] == "{:error, :test_error}"
+      refute added["result"][:raw_body]
     end
   end
 end

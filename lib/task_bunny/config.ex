@@ -223,4 +223,16 @@ defmodule TaskBunny.Config do
         concurrency > 0
     end
   end
+
+  @doc """
+  Returns the publisher pool size for poolboy. 15 by default
+  """
+  @spec publisher_pool_size :: integer
+  def publisher_pool_size, do: Application.get_env(:task_bunny, :publisher_pool_size, 15)
+
+  @doc """
+  Returns the max overflow for the publisher poolboy. 0 by default
+  """
+  @spec publisher_max_overflow :: integer
+  def publisher_max_overflow, do: Application.get_env(:task_bunny, :publisher_max_overflow, 0)
 end

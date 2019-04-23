@@ -28,6 +28,12 @@ use Mix.Config
 # here (which is why it is important to import them last).
 #
 
+# Disable Lager logs (Comes with rabbit_common)
+config :lager,
+  crash_log: false,
+  error_logger_redirect: false,
+  handlers: [level: :critical]
+
 config :task_bunny,
   hosts: [
     default: [
